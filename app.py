@@ -16,36 +16,35 @@ DATABASE_URL = st.secrets.get("DATABASE_URL", "")
 # ==========================================
 # DATABASE ENGINE (pg8000 - Python 3.12 safe)
 # ==========================================
+DATABASE_URL = st.secrets.get("DATABASE_URL", "")
+CLAUDE_API_KEY = st.secrets.get("CLAUDE_API_KEY", "")
+
 def get_engine():
-    """Create SQLAlchemy engine using pg8000 driver."""
-    # Replace standard prefix with pg8000 driver prefix
     db_url = DATABASE_URL.replace("postgresql://", "postgresql+pg8000://")
     return create_engine(db_url)
 
 def init_db():
-    """Create tables if they don't exist."""
-    try:
-        engine = get_engine()
-        with engine.connect() as conn:
-            conn.execute(text('''
-                CREATE TABLE IF NOT EXISTS users (
-                    id SERIAL PRIMARY KEY,
-                    email TEXT UNIQUE NOT NULL,
-                    profile_text TEXT NOT NULL,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            '''))
-            conn.execute(text('''
-                CREATE TABLE IF NOT EXISTS sent_jobs (
-                    id SERIAL PRIMARY KEY,
-                    user_email TEXT,
-                    job_id TEXT,
-                    title TEXT,
-                    company TEXT,
-                    date_sent TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            '''))
-            conn.commit()
+    engine = get_engine()
+    with engine.connect() as conn:
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS users (
+                id SERIAL PRIMARY KEY,
+                email TEXT UNIQUE NOT NULL,
+                profile_text TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """))
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS sent_jobs (
+                id SERIAL PRIMARY KEY,
+                user_email TEXT,
+                job_id TEXT,
+                title TEXT,
+                company TEXT,
+                date_sent TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """))
+        conn.commit()
         return True
     except Exception as e:
         st.error(f"❌ Database connection error: {e}")
