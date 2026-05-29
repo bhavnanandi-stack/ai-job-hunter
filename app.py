@@ -1,10 +1,10 @@
 import os
+import re
+import ssl
 import json
 import streamlit as st
 from anthropic import Anthropic
 from sqlalchemy import create_engine, text
-import ssl
-import re
 
 # ------------------------------------------
 # PAGE CONFIG
