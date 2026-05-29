@@ -1,9 +1,8 @@
 import streamlit as st
-import psycopg2
 import json
-import os
 from anthropic import Anthropic
 from datetime import datetime
+from sqlalchemy import create_engine, text
 
 # ==========================================
 # PAGE CONFIG
@@ -15,73 +14,80 @@ CLAUDE_API_KEY = st.secrets.get("CLAUDE_API_KEY", "")
 DATABASE_URL = st.secrets.get("DATABASE_URL", "")
 
 # ==========================================
-# DATABASE SETUP
+# DATABASE ENGINE (pg8000 - Python 3.12 safe)
 # ==========================================
+def get_engine():
+    """Create SQLAlchemy engine using pg8000 driver."""
+    # Replace standard prefix with pg8000 driver prefix
+    db_url = DATABASE_URL.replace("postgresql://", "postgresql+pg8000://")
+    return create_engine(db_url)
+
 def init_db():
+    """Create tables if they don't exist."""
     try:
-        conn = psycopg2.connect(DATABASE_URL)
-        c = conn.cursor()
-        # Create Users table
-        c.execute('''CREATE TABLE IF NOT EXISTS users (
-                        id SERIAL PRIMARY KEY,
-                        email TEXT UNIQUE NOT NULL,
-                        profile_text TEXT NOT NULL,
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    )''')
-        # Create Sent Jobs table
-        c.execute('''CREATE TABLE IF NOT EXISTS sent_jobs (
-                        id SERIAL PRIMARY KEY,
-                        user_email TEXT,
-                        job_id TEXT,
-                        title TEXT,
-                        company TEXT,
-                        date_sent TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    )''')
-        conn.commit()
-        conn.close()
+        engine = get_engine()
+        with engine.connect() as conn:
+            conn.execute(text('''
+                CREATE TABLE IF NOT EXISTS users (
+                    id SERIAL PRIMARY KEY,
+                    email TEXT UNIQUE NOT NULL,
+                    profile_text TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            '''))
+            conn.execute(text('''
+                CREATE TABLE IF NOT EXISTS sent_jobs (
+                    id SERIAL PRIMARY KEY,
+                    user_email TEXT,
+                    job_id TEXT,
+                    title TEXT,
+                    company TEXT,
+                    date_sent TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            '''))
+            conn.commit()
         return True
     except Exception as e:
-        st.error(f"Database connection error: {e}")
+        st.error(f"❌ Database connection error: {e}")
         return False
 
 # ==========================================
 # RESUME PARSER (CLAUDE AI)
 # ==========================================
 def parse_resume_with_claude(resume_text):
-    """Uses Claude to extract the email and format the profile."""
+    """Uses Claude to extract email and format the profile."""
     client = Anthropic(api_key=CLAUDE_API_KEY)
-    
+
     prompt = f"""
     You are an AI assistant. I will provide a candidate's raw resume.
     Your task is to:
     1. Find and extract the candidate's email address.
     2. Summarize their resume into a clean "Recruiter Profile" (Skills, Experience, Goals).
-    
+
     Raw Resume:
     {resume_text}
-    
+
     Return ONLY a JSON object exactly like this (no markdown, no extra text):
     {{
         "email": "extracted_email@example.com",
         "profile": "Cleaned up profile summary here..."
     }}
     """
-    
+
     try:
         response = client.messages.create(
             model="claude-3-5-sonnet-20241022",
             max_tokens=1000,
             messages=[{"role": "user", "content": prompt}]
         )
-        
-        # Clean and parse JSON
-        text = response.content[0].text.strip()
-        if "```json" in text: 
-            text = text.split("```json")[1].split("```")[0]
-        elif "```" in text: 
-            text = text.split("```")[1].split("```")[0]
-        
-        return json.loads(text)
+
+        text_response = response.content[0].text.strip()
+        if "```json" in text_response:
+            text_response = text_response.split("```json")[1].split("```")[0]
+        elif "```" in text_response:
+            text_response = text_response.split("```")[1].split("```")[0]
+
+        return json.loads(text_response)
     except Exception as e:
         return {"error": str(e)}
 
@@ -90,11 +96,11 @@ def parse_resume_with_claude(resume_text):
 # ==========================================
 st.title("🎯 AI Job Hunter")
 st.markdown("**Your Personal AI Recruiter** — Works 24/7 in the Cloud")
-st.markdown("Paste your resume below. Our AI will analyze your profile and email you high-match remote jobs every morning!")
+st.markdown("Paste your resume below. Our AI extracts your profile and emails you high-match remote jobs every morning!")
 
 st.divider()
 
-# Check if database is working
+# Safety checks
 if not DATABASE_URL:
     st.error("❌ Database not configured. Please set DATABASE_URL in Render secrets.")
     st.stop()
@@ -104,63 +110,63 @@ if not CLAUDE_API_KEY:
     st.stop()
 
 if not init_db():
-    st.error("❌ Could not connect to database.")
+    st.error("❌ Could not connect to database. Check your DATABASE_URL.")
     st.stop()
 
 # Resume input
-resume_input = st.text_area("📄 Paste your Resume or LinkedIn Profile here:", height=300, placeholder="Copy-paste your resume text, LinkedIn profile, or any career info...")
+resume_input = st.text_area(
+    "📄 Paste your Resume or LinkedIn Profile here:",
+    height=300,
+    placeholder="Copy-paste your resume text, LinkedIn profile, or any career info here..."
+)
 
-col1, col2 = st.columns(2)
-
-with col1:
-    submit_btn = st.button("🚀 Start Hunting Jobs for Me", use_container_width=True, type="primary")
-
-with col2:
-    st.button("ℹ️ How It Works", use_container_width=True)
+submit_btn = st.button("🚀 Start Hunting Jobs for Me", use_container_width=True, type="primary")
 
 if submit_btn:
     if len(resume_input) < 100:
-        st.error("❌ Please paste a longer resume so our AI can understand your profile. (Minimum 100 characters)")
+        st.error("❌ Please paste a longer resume (minimum 100 characters) so our AI can understand your profile.")
     else:
         with st.spinner("🧠 AI is analyzing your resume and extracting your email..."):
             parsed_data = parse_resume_with_claude(resume_input)
-            
+
             if "error" in parsed_data:
                 st.error(f"❌ Failed to parse resume: {parsed_data['error']}")
+
             elif not parsed_data.get("email") or "@" not in parsed_data.get("email", ""):
-                st.error("❌ Could not find an email address in your resume. Please include your email in the resume text.")
+                st.error("❌ Could not find an email address in your resume. Please include your email in the text.")
+
             else:
                 user_email = parsed_data["email"]
                 user_profile = parsed_data["profile"]
-                
-                # Save to Database
+
+                # Save to Neon Database
                 try:
-                    conn = psycopg2.connect(DATABASE_URL)
-                    c = conn.cursor()
-                    # Insert or update user
-                    c.execute("""
-                        INSERT INTO users (email, profile_text) 
-                        VALUES (%s, %s)
-                        ON CONFLICT (email) DO UPDATE 
-                        SET profile_text = EXCLUDED.profile_text,
-                            created_at = CURRENT_TIMESTAMP
-                    """, (user_email, user_profile))
-                    conn.commit()
-                    conn.close()
-                    
-                    st.success("✅ Success! Your profile has been saved!")
-                    st.info(f"📧 **Email:** {user_email}\n\n🎯 **Your AI Recruiter is now active!** You will receive your first job matches tomorrow morning at 9:00 AM.")
+                    engine = get_engine()
+                    with engine.connect() as conn:
+                        conn.execute(
+                            text("""
+                                INSERT INTO users (email, profile_text)
+                                VALUES (:email, :profile)
+                                ON CONFLICT (email) DO UPDATE
+                                SET profile_text = EXCLUDED.profile_text,
+                                    created_at = CURRENT_TIMESTAMP
+                            """),
+                            {"email": user_email, "profile": user_profile}
+                        )
+                        conn.commit()
+
+                    st.success("✅ Profile saved successfully!")
+                    st.info(f"📧 We found your email: **{user_email}**")
                     st.markdown("""
-                    ### What Happens Next:
-                    1. Our system searches the internet for remote jobs matching your profile
-                    2. Claude AI evaluates each job against YOUR specific skills and experience
-                    3. We send you ONLY high-match opportunities (80%+ relevance)
-                    4. You get a daily email with top job recommendations
+                    ### 🎉 You're all set! Here's what happens next:
+                    1. Every morning at **9:00 AM IST**, our AI scans the internet for remote jobs
+                    2. Claude evaluates each job against **your specific skills and experience**
+                    3. Only jobs with **80%+ match score** are sent to you
+                    4. You get a beautiful email with top job recommendations and direct apply links
                     """)
-                except psycopg2.IntegrityError:
-                    st.warning(f"⚠️ This email ({user_email}) is already registered! We've updated your profile.")
+
                 except Exception as e:
                     st.error(f"❌ Database error: {e}")
 
 st.divider()
-st.caption("🤖 Powered by Claude AI | Runs 24/7 in the cloud | Fully Automated")
+st.caption("🤖 Powered by Claude AI | Runs 24/7 in the cloud | Free forever")
