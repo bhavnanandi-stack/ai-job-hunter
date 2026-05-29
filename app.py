@@ -3,6 +3,8 @@ import json
 import streamlit as st
 from anthropic import Anthropic
 from sqlalchemy import create_engine, text
+import ssl
+import re
 
 # ------------------------------------------
 # PAGE CONFIG
@@ -25,7 +27,16 @@ CLAUDE_API_KEY = os.getenv("CLAUDE_API_KEY") or st.secrets.get("CLAUDE_API_KEY",
 
 def get_engine():
     db_url = DATABASE_URL.replace("postgresql://", "postgresql+pg8000://")
-    return create_engine(db_url)
+    db_url = re.sub(r"[?&]sslmode=[^&]*", "", db_url)
+
+    ssl_context = ssl.create_default_context()
+    ssl_context.check_hostname = False
+    ssl_context.verify_mode = ssl.CERT_NONE
+
+    return create_engine(
+        db_url,
+        connect_args={"ssl_context": ssl_context}
+    )
 
 def init_db():
     sql_users = (
