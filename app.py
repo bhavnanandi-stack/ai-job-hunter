@@ -27,7 +27,6 @@ def get_engine():
     db_url = DATABASE_URL.replace("postgresql://", "postgresql+pg8000://")
     return create_engine(db_url)
 
-
 def init_db():
     sql_users = (
         "CREATE TABLE IF NOT EXISTS users ("
@@ -55,9 +54,8 @@ def init_db():
             conn.commit()
         return True
     except Exception as e:
-        st.error("Database error: " + str(e))
+        st.error(f"Database error: {e}")
         return False
-
 
 def save_user(email, profile):
     sql = (
@@ -75,7 +73,6 @@ def save_user(email, profile):
         return True, None
     except Exception as e:
         return False, str(e)
-
 
 # ------------------------------------------
 # CLAUDE RESUME PARSER
@@ -105,7 +102,6 @@ def parse_resume(resume_text):
         return json.loads(output)
     except Exception as e:
         return {"error": str(e)}
-
 
 # ------------------------------------------
 # UI
